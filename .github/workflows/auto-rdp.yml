@@ -63,7 +63,7 @@ jobs:
           # Verify installation
           Write-Host "ngrok version:"
           & "$ngrokDir\ngrok.exe" version
-        
+          
       - name: Run RDP startup script
         shell: powershell
         run: |
@@ -111,11 +111,11 @@ jobs:
                   $statusContent += "============================"
                   $statusContent | Out-File -FilePath "rdp-status.txt"
                 }
-                
+          
                 # Create enhanced RDP file with ngrok address
                 $ngrokHost = ($ngrokAddress -split ":")[0]
                 $ngrokPort = ($ngrokAddress -split ":")[1]
-                
+          
                 $rdpContent = @"
 full address:s:$ngrokAddress
 audiomode:i:2
@@ -134,21 +134,21 @@ desktopheight:i:1080
 "@
                 $rdpContent | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
                 Write-Host "📁 Created connection-ngrok.rdp file for direct access"
-                
+          
               } else {
                 Write-Host "❌ Failed to retrieve tunnel information"
                 Write-Host "ngrok may not have started properly. Check ngrok-output.txt for details."
               }
-              
+          
             } catch {
               Write-Host "❌ Error getting tunnel info: $($_.Exception.Message)"
               Write-Host "This might happen if ngrok is not properly authenticated."
             }
-            
+          
             # Keep ngrok running by waiting
             Write-Host "Keeping ngrok tunnel alive..."
             Start-Sleep -Seconds 30
-            
+          
           } else {
             Write-Host "⚠️  Skipping ngrok tunnel setup (no auth token provided)"
             Write-Host "To enable automatic tunneling, add NGROK_AUTH_TOKEN as a repository secret."
@@ -185,6 +185,7 @@ desktopheight:i:1080
           if (!(Test-Path -Path "session-logs")) {
             New-Item -ItemType Directory -Path "session-logs"
           }
+          Write-Host "========================"
           
           # Generate timestamp for session
           $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
