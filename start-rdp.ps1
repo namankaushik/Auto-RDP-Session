@@ -1,5 +1,5 @@
 # Auto RDP Session Startup Script
-# This script initializes and manages an RDP session with RDP connection details
+# This script initializes and manages an RDP session with RDP connection details and optional ngrok tunnel
 # Script parameters and configuration
 param(
     [string]$SessionName = "AutoRDP-$(Get-Date -Format 'yyyyMMdd-HHmmss')",
@@ -16,15 +16,12 @@ function Write-Log {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogEntry = "[$Timestamp] [$Level] $Message"
     Write-Host $LogEntry
-    
-    # Placeholder: Add file logging if needed
-    # Add-Content -Path "session.log" -Value $LogEntry
 }
 
 # Function to generate secure random password
 function New-SecurePassword {
     param(
-        [int]$Length = 16
+        [int]$Length = 20
     )
     $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
     $password = ""
@@ -56,27 +53,18 @@ function Set-RDPUser {
         [string]$Username,
         [string]$Password
     )
-    
     try {
-        # Check if user exists
         $userExists = Get-LocalUser -Name $Username -ErrorAction SilentlyContinue
-        
+        $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
         if ($userExists) {
-            # Update existing user password
-            $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
             Set-LocalUser -Name $Username -Password $SecurePassword
-            Write-Log "Updated password for existing user: $Username" "Info"
+            Write-Log "Updated password for existing user: $Username"
         } else {
-            # Create new user
-            $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
             New-LocalUser -Name $Username -Password $SecurePassword -Description "Auto-generated RDP user" -PasswordNeverExpires
-            Write-Log "Created new user: $Username" "Info"
+            Write-Log "Created new user: $Username"
         }
-        
-        # Add user to Remote Desktop Users group
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
-        Write-Log "Added $Username to Remote Desktop Users group" "Info"
-        
+        Write-Log "Added $Username to Remote Desktop Users group"
         return $true
     } catch {
         Write-Log "Failed to setup RDP user: $($_.Exception.Message)" "Error"
@@ -84,53 +72,99 @@ function Set-RDPUser {
     }
 }
 
+# Function to optionally start ngrok tunnel (when NGROK_AUTH_TOKEN is present)
+function Start-NgrokRdpTunnel {
+    param(
+        [int]$LocalPort = 3389
+    )
+    try {
+        $auth = $env:NGROK_AUTH_TOKEN
+        if ([string]::IsNullOrEmpty($auth)) {
+            Write-Log "NGROK_AUTH_TOKEN not set. Skipping ngrok tunnel." "Warning"
+            return $null
+        }
+
+        # Ensure ngrok exists (workflow already installs; this is a fallback)
+        $ngrokExe = Join-Path (Join-Path (Get-Location) "ngrok") "ngrok.exe"
+        if (-not (Test-Path $ngrokExe)) {
+            Write-Log "ngrok not found; attempting inline install..."
+            $ngrokUrl = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
+            $ngrokZip = "ngrok.zip"
+            $ngrokDir = "ngrok"
+            New-Item -ItemType Directory -Path $ngrokDir -Force | Out-Null
+            Invoke-WebRequest -Uri $ngrokUrl -OutFile $ngrokZip
+            Expand-Archive -Path $ngrokZip -DestinationPath $ngrokDir -Force
+            $ngrokExe = Join-Path $ngrokDir "ngrok.exe"
+        }
+
+        # Configure auth token
+        & $ngrokExe authtoken $auth | Out-Null
+
+        # Start ngrok and capture output
+        $outFile = "ngrok-output.txt"
+        if (Test-Path $outFile) { Remove-Item $outFile -Force }
+        $proc = Start-Process -FilePath $ngrokExe -ArgumentList "tcp", "$LocalPort", "--log", "stdout" -NoNewWindow -PassThru -RedirectStandardOutput $outFile
+
+        # Wait for API to come online
+        Start-Sleep -Seconds 10
+        $addr = $null
+        try {
+            $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 30
+            $tcp = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" } | Select-Object -First 1
+            if ($tcp) {
+                $addr = ($tcp.public_url -replace "tcp://", "")
+            }
+        } catch {
+            Write-Log "Failed to query ngrok API: $($_.Exception.Message)" "Error"
+        }
+
+        if ($addr) {
+            Write-Log "NGROK tunnel active at: $addr"
+            return $addr
+        } else {
+            Write-Log "ngrok tunnel did not start correctly. See ngrok-output.txt" "Error"
+            return $null
+        }
+    } catch {
+        Write-Log "Error starting ngrok: $($_.Exception.Message)" "Error"
+        return $null
+    }
+}
+
 # Main script execution
 try {
-    Write-Log "Starting RDP session: $SessionName" "Info"
-    
-    # Placeholder: System validation
-    Write-Log "Performing system checks..." "Info"
-    
-    # Check if RDP is enabled (placeholder logic)
-    $rdpEnabled = $true # Placeholder - implement actual RDP status check
-    if (-not $rdpEnabled) {
-        Write-Log "RDP is not enabled. This would typically enable it here." "Warning"
-        # Placeholder: Enable RDP if needed
-        # Set-ItemProperty -Path 'HKLM:System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-    }
-    
-    # Generate RDP connection details
-    Write-Log "Generating RDP connection details..." "Info"
-    
-    # Generate secure password
+    Write-Log "Starting RDP session: $SessionName"
+
+    # System checks (placeholder)
+    Write-Log "Performing system checks..."
+
+    # Assume RDP enabled on hosted windows runner, otherwise would enable here
+
+    # Generate connection details
+    Write-Log "Generating RDP connection details..."
     $rdpPassword = New-SecurePassword -Length 20
     $rdpUsername = "rdpuser$(Get-Date -Format 'HHmmss')"
-    
-    # Get public IP address
     $publicIP = Get-PublicIPAddress
-    
-    # Setup RDP user
+
     $userSetupSuccess = Set-RDPUser -Username $rdpUsername -Password $rdpPassword
-    
+
     if ($userSetupSuccess) {
-        Write-Log "=== RDP CONNECTION DETAILS ===" "Info"
-        Write-Log "Public IP Address: $publicIP" "Info"
-        Write-Log "RDP Port: 3389" "Info"
-        Write-Log "Username: $rdpUsername" "Info"
-        Write-Log "Password: $rdpPassword" "Info"
-        Write-Log "============================" "Info"
-        
-        # Additional connection instructions
-        Write-Log "Connection Instructions:" "Info"
-        Write-Log "1. Open Remote Desktop Connection (mstsc.exe)" "Info"
-        Write-Log "2. Enter Computer: $publicIP:3389" "Info"
-        Write-Log "3. Enter Username: $rdpUsername" "Info"
-        Write-Log "4. Enter Password: $rdpPassword" "Info"
-        Write-Log "5. Click Connect" "Info"
-        
+        Write-Log "=== RDP CONNECTION DETAILS ==="
+        Write-Log "Public IP Address: $publicIP"
+        Write-Log "RDP Port: 3389"
+        Write-Log "Username: $rdpUsername"
+        Write-Log "Password: $rdpPassword"
+        Write-Log "============================"
+
+        Write-Log "Connection Instructions:"
+        Write-Log "1. Open Remote Desktop Connection (mstsc.exe)"
+        Write-Log "2. Enter Computer: $publicIP:3389"
+        Write-Log "3. Enter Username: $rdpUsername"
+        Write-Log "4. Enter Password: $rdpPassword"
+        Write-Log "5. Click Connect"
+
         # Create connection file for easy access
         $rdpContent = @"
-.DEFAULT.RDPDR CONNECTION SETTINGS:
 full address:s:$publicIP:3389
 username:s:$rdpUsername
 audiomode:i:2
@@ -147,69 +181,70 @@ remoteapplicationmode:i:0
 desktopwidth:i:1920
 desktopheight:i:1080
 "@
-        
         $rdpContent | Out-File -FilePath "connection.rdp" -Encoding UTF8
-        Write-Log "Created connection.rdp file for easy access" "Info"
-        
-        # Placeholder: Setup tunnel service (ngrok, Tailscale, etc.)
-        Write-Log "Tunnel Setup Instructions:" "Info"
-        Write-Log "For ngrok tunnel: ngrok tcp 3389" "Info"
-        Write-Log "For Tailscale: Install Tailscale and use machine's Tailscale IP" "Info"
-        Write-Log "For other tunneling: Configure your preferred tunneling solution" "Info"
+        Write-Log "Created connection.rdp file for easy access"
+
+        # Attempt to start ngrok tunnel (if token present)
+        $ngrokAddress = Start-NgrokRdpTunnel -LocalPort 3389
+        if ($ngrokAddress) {
+            Write-Log "=== NGROK TUNNEL DETAILS ==="
+            Write-Log "Tunnel Address: $ngrokAddress"
+            Write-Log "Use this address directly in mstsc.exe for remote access"
+            Write-Log "============================"
+
+            # Create RDP file for ngrok address
+            $ngrokRdp = @"
+full address:s:$ngrokAddress
+audiomode:i:2
+redirectcomports:i:0
+redirectprinters:i:1
+redirectsmartcards:i:1
+redirectclipboard:i:1
+redirectposdevices:i:0
+autoreconnection enabled:i:1
+authentication level:i:0
+prompt for credentials:i:0
+negotiate security layer:i:1
+remoteapplicationmode:i:0
+desktopwidth:i:1920
+desktopheight:i:1080
+"@
+            $ngrokRdp | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
+            Write-Log "Created connection-ngrok.rdp file for direct access"
+        } else {
+            # Provide guidance for setting NGROK_AUTH_TOKEN secret
+            Write-Log "To enable automatic ngrok tunnel, add repository secret 'NGROK_AUTH_TOKEN'" "Warning"
+            Write-Log "Setup path: Settings -> Secrets and variables -> Actions -> New repository secret" "Warning"
+            Write-Log "Get token: https://dashboard.ngrok.com/get-started/your-authtoken" "Warning"
+        }
     }
-    
-    # Placeholder: Network configuration
-    Write-Log "Configuring network settings..." "Info"
+
+    # Network adapter info
+    Write-Log "Configuring network settings..."
     $networkAdapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
     if ($networkAdapter) {
-        Write-Log "Using network adapter: $($networkAdapter.Name)" "Info"
+        Write-Log "Using network adapter: $($networkAdapter.Name)"
     } else {
         Write-Log "No active network adapter found" "Warning"
     }
-    
-    # Placeholder: Firewall configuration
-    Write-Log "Checking firewall settings..." "Info"
-    # Get-NetFirewallRule -DisplayName "Remote Desktop*" | Format-Table
-    
-    # Placeholder: Session monitoring setup
-    Write-Log "Initializing session monitoring..." "Info"
+
+    # Firewall placeholder
+    Write-Log "Checking firewall settings..."
+
+    # Session info
+    Write-Log "Initializing session monitoring..."
     $sessionInfo = @{
-        SessionId = $SessionName
-        StartTime = Get-Date
-        Status = "Running"
-        ProcessId = $PID
+        SessionId   = $SessionName
+        StartTime   = Get-Date
+        Status      = "Running"
+        ProcessId   = $PID
         RDPUsername = $rdpUsername
-        PublicIP = $publicIP
+        PublicIP    = $publicIP
     }
-    
-    # Convert session info to JSON for potential upload
     $sessionJson = $sessionInfo | ConvertTo-Json
-    Write-Log "Session info: $sessionJson" "Info"
-    
-    # Placeholder: Keep session alive logic
-    Write-Log "Starting keep-alive mechanism..." "Info"
-    # This could include periodic tasks, heartbeat checks, etc.
-    
-    # Placeholder: Backup/sync operations
-    if ($EnableBackup) {
-        Write-Log "Performing backup operations..." "Info"
-        # Placeholder for file backup logic
-        # - Backup important configuration files
-        # - Sync session data to cloud storage
-        # - Create system snapshots
-    }
-    
-    # Placeholder: Security hardening
-    Write-Log "Applying security configurations..." "Info"
-    # - Configure encryption settings
-    # - Set up access controls
-    # - Enable audit logging
-    
-    # Placeholder: Application startup
-    Write-Log "Starting required applications..." "Info"
-    # Start specific applications needed for the RDP session
-    
-    # Create a simple status file for the workflow to detect
+    Write-Log "Session info: $sessionJson"
+
+    # Create status file
     $statusFile = "rdp-status.txt"
     $statusContent = @"
 RDP session '$SessionName' started successfully at $(Get-Date)
@@ -218,31 +253,20 @@ Username: $rdpUsername
 Password: $rdpPassword
 Port: 3389
 "@
+    if ($ngrokAddress) {
+        $statusContent += @"
+NGROK Tunnel: $ngrokAddress
+Use this address in mstsc.exe for direct access
+"@
+    }
     $statusContent | Out-File -FilePath $statusFile
-    
-    Write-Log "RDP session initialization completed successfully" "Info"
-    
-    # Placeholder: Continuous monitoring loop
-    # while ($true) {
-    #     Start-Sleep -Seconds 60
-    #     Write-Log "Session heartbeat - $(Get-Date)" "Info"
-    #     # Add monitoring logic here
-    # }
-    
+
+    Write-Log "RDP session initialization completed successfully"
+
 } catch {
     Write-Log "Error occurred: $($_.Exception.Message)" "Error"
-    
-    # Placeholder: Error handling and cleanup
-    Write-Log "Performing cleanup operations..." "Info"
-    
-    # Placeholder: Send error notifications
-    # - Email alerts
-    # - Webhook notifications
-    # - Log to external monitoring systems
-    
     exit 1
 } finally {
-    Write-Log "Script execution completed" "Info"
+    Write-Log "Script execution completed"
 }
-
 # End of script
