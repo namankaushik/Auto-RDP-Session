@@ -1,0 +1,58 @@
+name: Auto RDP Session
+
+on:
+  schedule:
+    # Run every 8 hours
+    - cron: '0 */8 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  auto-rdp:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Run RDP startup script
+        shell: powershell
+        run: |
+          # Execute the startup script
+          .\start-rdp.ps1
+          
+      - name: Create session logs directory
+        shell: powershell
+        run: |
+          # Create logs directory if it doesn't exist
+          if (!(Test-Path -Path "session-logs")) {
+            New-Item -ItemType Directory -Path "session-logs"
+          }
+          
+          # Generate timestamp for session
+          $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+          
+          # Create a sample session log file
+          "RDP Session started at: $(Get-Date)" | Out-File -FilePath "session-logs\session_$timestamp.log"
+          "Session ID: $env:GITHUB_RUN_ID" | Add-Content -Path "session-logs\session_$timestamp.log"
+          "Workflow: $env:GITHUB_WORKFLOW" | Add-Content -Path "session-logs\session_$timestamp.log"
+          
+          # List created files
+          Get-ChildItem -Path "session-logs" | Format-Table
+          
+      - name: Upload session artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-session-logs-${{ github.run_number }}
+          path: session-logs/
+          retention-days: 30
+          
+      - name: Cleanup old artifacts (placeholder)
+        shell: powershell
+        run: |
+          # Placeholder for cleanup logic
+          Write-Host "Cleanup logic would go here"
+          Write-Host "This could include:"
+          Write-Host "- Removing old session files"
+          Write-Host "- Backing up important data"
+          Write-Host "- Sending notifications"
+          Write-Host "- Managing storage quotas"
