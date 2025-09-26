@@ -129,30 +129,12 @@ jobs:
                 Write-Host "=============================="
                 
                 # Save connection details to file
-                @"
-NGROK RDP CONNECTION DETAILS
-============================
-Host: $host
-Port: $port
-Username: rdpuser
-Password: RDP123!@#
-Full URL: $publicUrl
-
-To connect:
-1. Open Remote Desktop Connection
-2. Computer: $host`:$port
-3. Username: rdpuser
-4. Password: RDP123!@#
-"@ | Out-File -FilePath "rdp-connection-info.txt" -Encoding UTF8
+                $connectionInfo = "NGROK RDP CONNECTION DETAILS`n============================`nHost: $host`nPort: $port`nUsername: rdpuser`nPassword: RDP123!@#`nFull URL: $publicUrl`n`nTo connect:`n1. Open Remote Desktop Connection`n2. Computer: $host`:$port`n3. Username: rdpuser`n4. Password: RDP123!@#"
+                $connectionInfo | Out-File -FilePath "rdp-connection-info.txt" -Encoding UTF8
                 
                 # Create RDP file with ngrok details
-                @"
-full address:s:$host`:$port
-username:s:rdpuser
-prompt for credentials:i:0
-administrative session:i:1
-"@ | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
-                
+                $rdpContent = "full address:s:$host`:$port`nusername:s:rdpuser`nprompt for credentials:i:0`nadministrative session:i:1"
+                $rdpContent | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
               }
             } else {
               Write-Host "❌ Failed to get ngrok tunnel information"
@@ -171,24 +153,12 @@ administrative session:i:1
           # Create standard RDP file for GitHub Actions runner
           $runnerIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"} | Select-Object -First 1).IPAddress
           
-          @"
-full address:s:$runnerIP
-username:s:rdpuser
-prompt for credentials:i:0
-administrative session:i:1
-"@ | Out-File -FilePath "connection.rdp" -Encoding UTF8
+          $standardRdpContent = "full address:s:$runnerIP`nusername:s:rdpuser`nprompt for credentials:i:0`nadministrative session:i:1"
+          $standardRdpContent | Out-File -FilePath "connection.rdp" -Encoding UTF8
           
           # Create status file
-          @"
-RDP Session Status
-==================
-Runner IP: $runnerIP
-Username: rdpuser
-Password: RDP123!@#
-Timestamp: $(Get-Date)
-
-Note: Use connection-ngrok.rdp if ngrok tunnel is available
-"@ | Out-File -FilePath "rdp-status.txt" -Encoding UTF8
+          $statusContent = "RDP Session Status`n==================`nRunner IP: $runnerIP`nUsername: rdpuser`nPassword: RDP123!@#`nTimestamp: $(Get-Date)`n`nNote: Use connection-ngrok.rdp if ngrok tunnel is available"
+          $statusContent | Out-File -FilePath "rdp-status.txt" -Encoding UTF8
           
           Write-Host "Standard RDP connection file created"
           Write-Host "Runner IP: $runnerIP"
