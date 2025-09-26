@@ -1,4 +1,5 @@
 name: Auto RDP Session
+
 on:
   schedule:
     # Run every 8 hours
@@ -11,6 +12,7 @@ env:
 jobs:
   auto-rdp:
     runs-on: windows-latest
+    timeout-minutes: 360  # 6 hours max runtime
     
     steps:
       - name: Checkout repository
@@ -35,189 +37,209 @@ jobs:
       - name: Install and configure ngrok
         shell: powershell
         run: |
-          Write-Host "Installing ngrok..."
+          # Download and install ngrok
+          Write-Host "Downloading ngrok..."
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Expand-Archive -Path "ngrok.zip" -DestinationPath "."
           
-          # Download ngrok
-          $ngrokUrl = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
-          $ngrokZip = "ngrok.zip"
-          $ngrokDir = "ngrok"
-          
-          # Create directory and download
-          New-Item -ItemType Directory -Path $ngrokDir -Force
-          Invoke-WebRequest -Uri $ngrokUrl -OutFile $ngrokZip
-          
-          # Extract ngrok
-          Expand-Archive -Path $ngrokZip -DestinationPath $ngrokDir -Force
-          
-          # Add ngrok to PATH for this session
-          $env:PATH += ";$(Get-Location)\$ngrokDir"
-          
-          # Configure ngrok auth token if available
-          if (-not [string]::IsNullOrEmpty($env:NGROK_AUTH_TOKEN)) {
+          # Configure ngrok if auth token is available
+          if (![string]::IsNullOrEmpty($env:NGROK_AUTH_TOKEN)) {
             Write-Host "Configuring ngrok with auth token..."
-            & "$ngrokDir\ngrok.exe" authtoken $env:NGROK_AUTH_TOKEN
+            .\ngrok.exe config add-authtoken $env:NGROK_AUTH_TOKEN
           } else {
-            Write-Host "Skipping ngrok auth configuration (no token provided)"
+            Write-Host "Skipping ngrok configuration (no auth token)"
           }
           
-          # Verify installation
-          Write-Host "ngrok version:"
-          & "$ngrokDir\ngrok.exe" version
-          
-      - name: Run RDP startup script
+      - name: Enable RDP and configure user
         shell: powershell
         run: |
-          # Execute the startup script
-          .\start-rdp.ps1
+          # Enable RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           
-      - name: Start ngrok RDP tunnel
+          # Set up user account
+          $Password = ConvertTo-SecureString "RDP123!@#" -AsPlainText -Force
+          $Username = "rdpuser"
+          
+          # Create user if doesn't exist
+          try {
+            Get-LocalUser -Name $Username -ErrorAction Stop
+            Write-Host "User $Username already exists"
+          } catch {
+            New-LocalUser -Name $Username -Password $Password -PasswordNeverExpires -AccountNeverExpires
+            Write-Host "Created user $Username"
+          }
+          
+          # Add to Remote Desktop Users group
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member $Username -ErrorAction SilentlyContinue
+          
+          Write-Host "RDP enabled for user: $Username"
+          Write-Host "Password: RDP123!@#"
+          
+      - name: Start ngrok TCP tunnel
         shell: powershell
         run: |
-          if (-not [string]::IsNullOrEmpty($env:NGROK_AUTH_TOKEN)) {
-            Write-Host "Starting ngrok TCP tunnel for RDP..."
+          if (![string]::IsNullOrEmpty($env:NGROK_AUTH_TOKEN)) {
+            Write-Host "Starting ngrok TCP tunnel on port 3389..."
             
-            # Start ngrok in background
-            $ngrokProcess = Start-Process -FilePath "ngrok\ngrok.exe" -ArgumentList "tcp", "3389", "--log", "stdout" -NoNewWindow -PassThru -RedirectStandardOutput "ngrok-output.txt"
+            # Start ngrok in background and capture output
+            Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp", "3389", "--log=stdout" -RedirectStandardOutput "ngrok-output.txt" -NoNewWindow
             
-            # Wait a moment for ngrok to start
+            # Wait for ngrok to start
             Start-Sleep -Seconds 10
             
-            # Get tunnel information
-            try {
-              $tunnelInfo = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 30
-              $tunnel = $tunnelInfo.tunnels | Where-Object { $_.proto -eq "tcp" } | Select-Object -First 1
+            # Get tunnel information from ngrok API
+            $maxAttempts = 30
+            $attempt = 0
+            $tunnelInfo = $null
+            
+            do {
+              $attempt++
+              Write-Host "Attempt $attempt to get tunnel info..."
               
-              if ($tunnel) {
-                $ngrokAddress = $tunnel.public_url -replace "tcp://", ""
-                Write-Host "🚀 === NGROK RDP TUNNEL ACTIVE ==="
-                Write-Host "✓ Tunnel Address: $ngrokAddress"
-                Write-Host "✓ Protocol: TCP"
-                Write-Host "✓ Local Port: 3389"
-                Write-Host "✓ Status: Online"
-                Write-Host "================================="
-                Write-Host ""
-                Write-Host "🔗 Direct RDP Connection Instructions:"
-                Write-Host "1. Open Remote Desktop Connection (mstsc.exe)"
-                Write-Host "2. Computer: $ngrokAddress"
-                
-                # Update status file with ngrok info
-                if (Test-Path "rdp-status.txt") {
-                  $statusContent = Get-Content "rdp-status.txt"
-                  $statusContent += ""
-                  $statusContent += "=== NGROK TUNNEL DETAILS ==="
-                  $statusContent += "Tunnel Address: $ngrokAddress"
-                  $statusContent += "Direct RDP Access: Use this address in Remote Desktop Connection"
-                  $statusContent += "Tunnel Status: Active"
-                  $statusContent += "============================"
-                  $statusContent | Out-File -FilePath "rdp-status.txt"
+              try {
+                $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -Method Get
+                if ($response.tunnels -and $response.tunnels.Count -gt 0) {
+                  $tunnelInfo = $response.tunnels[0]
+                  break
                 }
-          
-                # Create enhanced RDP file with ngrok address
-                $ngrokHost = ($ngrokAddress -split ":")[0]
-                $ngrokPort = ($ngrokAddress -split ":")[1]
-          
-                $rdpContent = @"
-full address:s:$ngrokAddress
-audiomode:i:2
-redirectcomports:i:0
-redirectprinters:i:1
-redirectsmartcards:i:1
-redirectclipboard:i:1
-redirectposdevices:i:0
-autoreconnection enabled:i:1
-authentication level:i:0
-prompt for credentials:i:0
-negotiate security layer:i:1
-remoteapplicationmode:i:0
-desktopwidth:i:1920
-desktopheight:i:1080
-"@
-                $rdpContent | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
-                Write-Host "📁 Created connection-ngrok.rdp file for direct access"
-          
-              } else {
-                Write-Host "❌ Failed to retrieve tunnel information"
-                Write-Host "ngrok may not have started properly. Check ngrok-output.txt for details."
+              } catch {
+                Write-Host "Waiting for ngrok to start..."
               }
-          
-            } catch {
-              Write-Host "❌ Error getting tunnel info: $($_.Exception.Message)"
-              Write-Host "This might happen if ngrok is not properly authenticated."
+              
+              Start-Sleep -Seconds 2
+            } while ($attempt -lt $maxAttempts)
+            
+            if ($tunnelInfo) {
+              $publicUrl = $tunnelInfo.public_url
+              Write-Host "🚀 === NGROK TUNNEL ACTIVE ==="
+              Write-Host "Public URL: $publicUrl"
+              
+              # Extract host and port from URL
+              if ($publicUrl -match "tcp://([^:]+):(\d+)") {
+                $host = $matches[1]
+                $port = $matches[2]
+                
+                Write-Host "RDP Connection Details:"
+                Write-Host "Host: $host"
+                Write-Host "Port: $port"
+                Write-Host "Username: rdpuser"
+                Write-Host "Password: RDP123!@#"
+                Write-Host "=============================="
+                
+                # Save connection details to file
+                @"
+NGROK RDP CONNECTION DETAILS
+============================
+Host: $host
+Port: $port
+Username: rdpuser
+Password: RDP123!@#
+Full URL: $publicUrl
+
+To connect:
+1. Open Remote Desktop Connection
+2. Computer: $host`:$port
+3. Username: rdpuser
+4. Password: RDP123!@#
+"@ | Out-File -FilePath "rdp-connection-info.txt" -Encoding UTF8
+                
+                # Create RDP file with ngrok details
+                @"
+full address:s:$host`:$port
+username:s:rdpuser
+prompt for credentials:i:0
+administrative session:i:1
+"@ | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
+                
+              }
+            } else {
+              Write-Host "❌ Failed to get ngrok tunnel information"
+              Write-Host "Checking ngrok output..."
+              if (Test-Path "ngrok-output.txt") {
+                Get-Content "ngrok-output.txt" | Write-Host
+              }
             }
-          
-            # Keep ngrok running by waiting
-            Write-Host "Keeping ngrok tunnel alive..."
-            Start-Sleep -Seconds 30
-          
           } else {
-            Write-Host "⚠️  Skipping ngrok tunnel setup (no auth token provided)"
-            Write-Host "To enable automatic tunneling, add NGROK_AUTH_TOKEN as a repository secret."
+            Write-Host "⚠️  Skipping ngrok tunnel (no auth token configured)"
           }
           
-      - name: Display RDP Connection Details
+      - name: Create standard RDP connection file
         shell: powershell
         run: |
-          Write-Host "📊 === COMPLETE CONNECTION SUMMARY ==="
+          # Create standard RDP file for GitHub Actions runner
+          $runnerIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"} | Select-Object -First 1).IPAddress
           
-          # Display connection details from status file
-          if (Test-Path "rdp-status.txt") {
-            Write-Host "📋 RDP Session Details:"
-            Get-Content "rdp-status.txt" | ForEach-Object { Write-Host "   $_" }
-          }
+          @"
+full address:s:$runnerIP
+username:s:rdpuser
+prompt for credentials:i:0
+administrative session:i:1
+"@ | Out-File -FilePath "connection.rdp" -Encoding UTF8
           
-          # Display from connection.rdp file if it exists
-          if (Test-Path "connection.rdp") {
-            Write-Host ""
-            Write-Host "📁 Standard RDP file created: connection.rdp"
-          }
+          # Create status file
+          @"
+RDP Session Status
+==================
+Runner IP: $runnerIP
+Username: rdpuser
+Password: RDP123!@#
+Timestamp: $(Get-Date)
+
+Note: Use connection-ngrok.rdp if ngrok tunnel is available
+"@ | Out-File -FilePath "rdp-status.txt" -Encoding UTF8
           
-          # Display ngrok RDP file if it exists
-          if (Test-Path "connection-ngrok.rdp") {
-            Write-Host "🚀 ngrok RDP file created: connection-ngrok.rdp (recommended)"
-          }
+          Write-Host "Standard RDP connection file created"
+          Write-Host "Runner IP: $runnerIP"
           
-          Write-Host "====================================="
-          
-      - name: Create session logs directory
+      - name: Keep session alive and monitor
         shell: powershell
         run: |
-          # Create logs directory if it doesn't exist
-          if (!(Test-Path -Path "session-logs")) {
-            New-Item -ItemType Directory -Path "session-logs"
+          Write-Host "🔄 Keeping RDP session alive..."
+          Write-Host "Session will run for up to 6 hours or until manually stopped"
+          Write-Host "Check the Actions tab for real-time logs"
+          
+          $startTime = Get-Date
+          $maxDuration = New-TimeSpan -Hours 6
+          
+          # Create monitoring loop
+          while ((Get-Date) - $startTime -lt $maxDuration) {
+            $currentTime = Get-Date
+            $elapsed = $currentTime - $startTime
+            
+            Write-Host "⏰ Session active for: $($elapsed.ToString('hh\:mm\:ss'))"
+            
+            # Check if ngrok is still running
+            if (![string]::IsNullOrEmpty($env:NGROK_AUTH_TOKEN)) {
+              try {
+                $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -Method Get -ErrorAction SilentlyContinue
+                if ($response.tunnels -and $response.tunnels.Count -gt 0) {
+                  $publicUrl = $response.tunnels[0].public_url
+                  Write-Host "✅ Ngrok tunnel active: $publicUrl"
+                } else {
+                  Write-Host "⚠️  Ngrok tunnel not found"
+                }
+              } catch {
+                Write-Host "⚠️  Cannot reach ngrok API"
+              }
+            }
+            
+            # Show active RDP sessions
+            $rdpSessions = quser 2>$null
+            if ($rdpSessions) {
+              Write-Host "👥 Active RDP sessions:"
+              $rdpSessions | ForEach-Object { Write-Host "   $_" }
+            } else {
+              Write-Host "📭 No active RDP sessions"
+            }
+            
+            Start-Sleep -Seconds 300  # Check every 5 minutes
           }
-          Write-Host "========================"
           
-          # Generate timestamp for session
-          $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+          Write-Host "⏹️  Session timeout reached (6 hours)"
           
-          # Create a comprehensive session log file
-          $logFile = "session-logs\session_$timestamp.log"
-          "RDP Session started at: $(Get-Date)" | Out-File -FilePath $logFile
-          "Session ID: $env:GITHUB_RUN_ID" | Add-Content -Path $logFile
-          "Workflow: $env:GITHUB_WORKFLOW" | Add-Content -Path $logFile
-          "Runner OS: $env:RUNNER_OS" | Add-Content -Path $logFile
-          "" | Add-Content -Path $logFile
-          
-          # Copy connection details to log file
-          if (Test-Path "rdp-status.txt") {
-            "=== RDP CONNECTION DETAILS ===" | Add-Content -Path $logFile
-            Get-Content "rdp-status.txt" | Add-Content -Path $logFile
-            "==============================" | Add-Content -Path $logFile
-          }
-          
-          # Copy ngrok output if available
-          if (Test-Path "ngrok-output.txt") {
-            "" | Add-Content -Path $logFile
-            "=== NGROK OUTPUT ===" | Add-Content -Path $logFile
-            Get-Content "ngrok-output.txt" | Add-Content -Path $logFile
-            "==================" | Add-Content -Path $logFile
-          }
-          
-          # List created files
-          Write-Host "Created log files:"
-          Get-ChildItem -Path "session-logs" | Format-Table
-          
-      - name: Upload RDP connection files
+      - name: Upload connection files
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -225,39 +247,34 @@ desktopheight:i:1080
           path: |
             connection.rdp
             connection-ngrok.rdp
+            rdp-connection-info.txt
             rdp-status.txt
             ngrok-output.txt
           retention-days: 7
           
-      - name: Upload session artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rdp-session-logs-${{ github.run_number }}
-          path: session-logs/
-          retention-days: 30
-          
-      - name: Setup instructions summary
+      - name: Display final connection summary
+        if: always()
         shell: powershell
         run: |
-          Write-Host "📋 === SETUP COMPLETE ==="
-          Write-Host "✅ RDP session is now active"
+          Write-Host "📋 === SESSION SUMMARY ==="
+          Write-Host "✅ RDP session completed"
           Write-Host ""
+          Write-Host "📁 Available artifacts:"
           
           if (Test-Path "connection-ngrok.rdp") {
-            Write-Host "🚀 RECOMMENDED: Download 'connection-ngrok.rdp' from artifacts for direct access"
+            Write-Host "   🚀 connection-ngrok.rdp - Direct access via ngrok tunnel"
+            if (Test-Path "rdp-connection-info.txt") {
+              Write-Host "   📄 rdp-connection-info.txt - Connection details"
+              Write-Host ""
+              Write-Host "📋 Final Connection Info:"
+              Get-Content "rdp-connection-info.txt" | Write-Host
+            }
           } else {
-            Write-Host "⚠️  To enable direct access via ngrok:"
-            Write-Host "   1. Get ngrok auth token from https://dashboard.ngrok.com/get-started/your-authtoken"
-            Write-Host "   2. Add as repository secret 'NGROK_AUTH_TOKEN'"
-            Write-Host "   3. Re-run this workflow"
+            Write-Host "   ⚠️  ngrok tunnel was not available"
           }
           
+          Write-Host "   🖥️  connection.rdp - Standard RDP file"
+          Write-Host "   📊 rdp-status.txt - Session status"
           Write-Host ""
-          Write-Host "📁 Available files in artifacts:"
-          Write-Host "   - connection.rdp (standard RDP file)"
-          if (Test-Path "connection-ngrok.rdp") {
-            Write-Host "   - connection-ngrok.rdp (direct access via ngrok)"
-          }
-          Write-Host "   - rdp-status.txt (connection details)"
-          Write-Host "   - Session logs directory"
+          Write-Host "💡 To use: Download the RDP file from artifacts and double-click to connect"
           Write-Host "========================"
