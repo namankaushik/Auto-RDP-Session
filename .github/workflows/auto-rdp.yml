@@ -1,10 +1,8 @@
 name: Auto RDP Session
-
 on:
   workflow_dispatch:
   schedule:
     - cron: '*/5 * * * *'  # Run every 5 minutes for testing
-
 jobs:
   setup-rdp:
     runs-on: windows-latest
@@ -39,7 +37,6 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction SilentlyContinue
           
           Write-Host "RDP enabled successfully"
-
       - name: Install ngrok
         shell: powershell
         run: |
@@ -57,7 +54,6 @@ jobs:
             Write-Host "Error installing ngrok: $($_.Exception.Message)"
             exit 1
           }
-
       - name: Setup ngrok auth token
         shell: powershell
         run: |
@@ -71,7 +67,6 @@ jobs:
           
           ./ngrok config add-authtoken $authToken
           Write-Host "ngrok auth token configured"
-
       - name: Start ngrok tunnel
         shell: powershell
         run: |
@@ -97,61 +92,61 @@ jobs:
                 
                 # Save connection info
                 @"
-ngrok Tunnel Details:
-Public URL: $publicUrl
-Host: $ngrokHost
-Port: $ngrokPort
-Username: Administrator
-Password: RDPPass2024!
-"@ | Out-File -FilePath "rdp-connection-info.txt" -Encoding UTF8
+    ngrok Tunnel Details:
+    Public URL: $publicUrl
+    Host: $ngrokHost
+    Port: $ngrokPort
+    Username: Administrator
+    Password: RDPPass2024!
+    "@ | Out-File -FilePath "rdp-connection-info.txt" -Encoding UTF8
                 
                 # Create ngrok RDP file
                 @"
-screen mode id:i:2
-use multimon:i:0
-desktopwidth:i:1024
-desktopheight:i:768
-session bpp:i:32
-winposstr:s:0,3,0,0,800,600
-compression:i:1
-keyboardhook:i:2
-audiocapturemode:i:0
-videoplaybackmode:i:1
-connection type:i:7
-networkautodetect:i:1
-bandwidthautodetect:i:1
-displayfontsmoothing:i:0
-allow desktop composition:i:0
-allow font smoothing:i:0
-disable wallpaper:i:0
-disable full window drag:i:1
-disable menu anims:i:1
-disable themes:i:0
-disable cursor setting:i:0
-bitmapcachepersistenable:i:1
-full address:s:$ngrokHost:$ngrokPort
-audiomode:i:0
-redirectprinters:i:1
-redirectcomports:i:0
-redirectsmartcards:i:1
-redirectclipboard:i:1
-redirectposdevices:i:0
-autoreconnection enabled:i:1
-authentication level:i:2
-prompt for credentials:i:0
-negotiate security layer:i:1
-remoteapplicationmode:i:0
-gate way hostname:s:
-gateway usage method:i:4
-gatewaycredentialssource:i:4
-gatewayprofileusagemethod:i:0
-promptcredentialonce:i:0
-gatewaybrokeringtype:i:0
-use redirection server name:i:0
-rdgiskdcproxy:i:0
-kdcproxyname:s:
-username:s:Administrator
-"@ | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
+    screen mode id:i:2
+    use multimon:i:0
+    desktopwidth:i:1024
+    desktopheight:i:768
+    session bpp:i:32
+    winposstr:s:0,3,0,0,800,600
+    compression:i:1
+    keyboardhook:i:2
+    audiocapturemode:i:0
+    videoplaybackmode:i:1
+    connection type:i:7
+    networkautodetect:i:1
+    bandwidthautodetect:i:1
+    displayfontsmoothing:i:0
+    allow desktop composition:i:0
+    allow font smoothing:i:0
+    disable wallpaper:i:0
+    disable full window drag:i:1
+    disable menu anims:i:1
+    disable themes:i:0
+    disable cursor setting:i:0
+    bitmapcachepersistenable:i:1
+    full address:s:$ngrokHost:$ngrokPort
+    audiomode:i:0
+    redirectprinters:i:1
+    redirectcomports:i:0
+    redirectsmartcards:i:1
+    redirectclipboard:i:1
+    redirectposdevices:i:0
+    autoreconnection enabled:i:1
+    authentication level:i:2
+    prompt for credentials:i:0
+    negotiate security layer:i:1
+    remoteapplicationmode:i:0
+    gate way hostname:s:
+    gateway usage method:i:4
+    gatewaycredentialssource:i:4
+    gatewayprofileusagemethod:i:0
+    promptcredentialonce:i:0
+    gatewaybrokeringtype:i:0
+    use redirection server name:i:0
+    rdgiskdcproxy:i:0
+    kdcproxyname:s:
+    username:s:Administrator
+    "@ | Out-File -FilePath "connection-ngrok.rdp" -Encoding UTF8
                 
               } else {
                 Write-Host "⚠️  No active tunnels found"
@@ -163,60 +158,58 @@ username:s:Administrator
           } catch {
             Write-Host "Error starting ngrok: $($_.Exception.Message)"
           }
-
       - name: Create standard RDP file
         shell: powershell
         run: |
           # Create standard RDP connection file
           @"
-screen mode id:i:2
-use multimon:i:0
-desktopwidth:i:1024
-desktopheight:i:768
-session bpp:i:32
-winposstr:s:0,3,0,0,800,600
-compression:i:1
-keyboardhook:i:2
-audiocapturemode:i:0
-videoplaybackmode:i:1
-connection type:i:7
-networkautodetect:i:1
-bandwidthautodetect:i:1
-displayfontsmoothing:i:0
-allow desktop composition:i:0
-allow font smoothing:i:0
-disable wallpaper:i:0
-disable full window drag:i:1
-disable menu anims:i:1
-disable themes:i:0
-disable cursor setting:i:0
-bitmapcachepersistenable:i:1
-full address:s:localhost:3389
-audiomode:i:0
-redirectprinters:i:1
-redirectcomports:i:0
-redirectsmartcards:i:1
-redirectclipboard:i:1
-redirectposdevices:i:0
-autoreconnection enabled:i:1
-authentication level:i:2
-prompt for credentials:i:0
-negotiate security layer:i:1
-remoteapplicationmode:i:0
-gate way hostname:s:
-gateway usage method:i:4
-gatewaycredentialssource:i:4
-gatewayprofileusagemethod:i:0
-promptcredentialonce:i:0
-gatewaybrokeringtype:i:0
-use redirection server name:i:0
-rdgiskdcproxy:i:0
-kdcproxyname:s:
-username:s:Administrator
-"@ | Out-File -FilePath "connection.rdp" -Encoding UTF8
+    screen mode id:i:2
+    use multimon:i:0
+    desktopwidth:i:1024
+    desktopheight:i:768
+    session bpp:i:32
+    winposstr:s:0,3,0,0,800,600
+    compression:i:1
+    keyboardhook:i:2
+    audiocapturemode:i:0
+    videoplaybackmode:i:1
+    connection type:i:7
+    networkautodetect:i:1
+    bandwidthautodetect:i:1
+    displayfontsmoothing:i:0
+    allow desktop composition:i:0
+    allow font smoothing:i:0
+    disable wallpaper:i:0
+    disable full window drag:i:1
+    disable menu anims:i:1
+    disable themes:i:0
+    disable cursor setting:i:0
+    bitmapcachepersistenable:i:1
+    full address:s:localhost:3389
+    audiomode:i:0
+    redirectprinters:i:1
+    redirectcomports:i:0
+    redirectsmartcards:i:1
+    redirectclipboard:i:1
+    redirectposdevices:i:0
+    autoreconnection enabled:i:1
+    authentication level:i:2
+    prompt for credentials:i:0
+    negotiate security layer:i:1
+    remoteapplicationmode:i:0
+    gate way hostname:s:
+    gateway usage method:i:4
+    gatewaycredentialssource:i:4
+    gatewayprofileusagemethod:i:0
+    promptcredentialonce:i:0
+    gatewaybrokeringtype:i:0
+    use redirection server name:i:0
+    rdgiskdcproxy:i:0
+    kdcproxyname:s:
+    username:s:Administrator
+    "@ | Out-File -FilePath "connection.rdp" -Encoding UTF8
           
           Write-Host "Standard RDP file created"
-
       - name: Keep session alive and monitor
         shell: powershell
         run: |
@@ -263,7 +256,6 @@ username:s:Administrator
           }
           
           Write-Host "⏹️  Session timeout reached (6 hours)"
-
       - name: Upload connection files
         uses: actions/upload-artifact@v4
         if: always()
