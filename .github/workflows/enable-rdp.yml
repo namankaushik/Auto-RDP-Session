@@ -19,18 +19,9 @@ jobs:
       
       - name: Set RDP credentials with full rights
         run: |
-          $username = "rdpuser"
-          $password = "Win@2025RDPEz!" | ConvertTo-SecureString -AsPlainText -Force
-          New-LocalUser -Name $username -Password $password -FullName "RDP User" -Description "User for RDP access"
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          
-          # Grant full control permissions
-          $acl = Get-Acl "C:\"
-          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($username, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-          $acl.AddAccessRule($rule)
-          
-          Write-Host "RDP user created with full administrator rights: $username"
+          net user Administrator Win@2025RDPEz! /active:yes
+          Write-Host "Administrator account enabled with password set"
+          Write-Host "Username: Administrator"
           Write-Host "Password: Win@2025RDPEz!"
         shell: powershell
       
@@ -90,7 +81,7 @@ jobs:
             Write-Host "RDP CONNECTION INFORMATION"
             Write-Host "========================================"
             Write-Host "ngrok Public URL: $publicUrl"
-            Write-Host "Username: rdpuser"
+            Write-Host "Username: Administrator"
             Write-Host "Password: Win@2025RDPEz!"
             Write-Host "========================================"
             
@@ -98,7 +89,7 @@ jobs:
             $connectionInfo = "RDP Connection Information`n"
             $connectionInfo += "==========================`n"
             $connectionInfo += "ngrok URL: $publicUrl`n"
-            $connectionInfo += "Username: rdpuser`n"
+            $connectionInfo += "Username: Administrator`n"
             $connectionInfo += "Password: Win@2025RDPEz!`n"
             $connectionInfo += "`n"
             $connectionInfo += "Instructions:`n"
