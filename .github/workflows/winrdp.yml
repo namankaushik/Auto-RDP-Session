@@ -1,0 +1,29 @@
+name: winrdp
+on: [workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+    - name: Download ngrok
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract ngrok
+      run: Expand-Archive ngrok.zip -DestinationPath .\ngrok
+    - name: Auth ngrok
+      run: .\ngrok\ngrok.exe config add-authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+    - name: Enable RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - name: Set runneradmin password
+      run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+    - name: Start ngrok tunnel
+      run: Start-Process -NoNewWindow -FilePath .\ngrok\ngrok.exe -ArgumentList "tcp 3389"
+    - name: Print connection info
+      run: |
+        Start-Sleep -Seconds 15
+        $resp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+        $url = $resp.tunnels[0].public_url
+        Write-Output ("RDP ADDRESS: {0}`nUSERNAME: runneradmin`nPASSWORD: P@ssw0rd!" -f $url.Replace('tcp://',''))
