@@ -1,0 +1,87 @@
+name: Enable RDP Session
+
+on:
+  workflow_dispatch:
+
+jobs:
+  enable-rdp:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Write-Host "RDP has been enabled"
+        shell: powershell
+      
+      - name: Set RDP credentials
+        run: |
+          $username = "rdpuser"
+          $password = "RDPPass@123!" | ConvertTo-SecureString -AsPlainText -Force
+          New-LocalUser -Name $username -Password $password -FullName "RDP User" -Description "User for RDP access"
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          Write-Host "RDP user created: $username"
+          Write-Host "Password: RDPPass@123!"
+        shell: powershell
+      
+      - name: Install ngrok
+        run: |
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Expand-Archive -Path "ngrok.zip" -DestinationPath "C:\ngrok"
+          Write-Host "ngrok installed successfully"
+        shell: powershell
+      
+      - name: Start ngrok tunnel
+        run: |
+          Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp", "3389" -NoNewWindow
+          Start-Sleep -Seconds 5
+          Write-Host "ngrok tunnel started for RDP (port 3389)"
+        shell: powershell
+      
+      - name: Get ngrok connection info
+        run: |
+          Start-Sleep -Seconds 3
+          try {
+            $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+            $publicUrl = $response.tunnels[0].public_url
+            Write-Host "ngrok Public URL: $publicUrl"
+            Write-Host "Username: rdpuser"
+            Write-Host "Password: RDPPass@123!"
+            
+            # Save connection info to file
+            $connectionInfo = @"
+RDP Connection Information
+==========================
+ngrok URL: $publicUrl
+Username: rdpuser
+Password: RDPPass@123!
+
+Instructions:
+1. Use Remote Desktop Connection client
+2. Connect to the ngrok URL (remove tcp:// prefix and use format: hostname:port)
+3. Enter the credentials above when prompted
+"@
+            $connectionInfo | Out-File -FilePath "rdp-connection-info.txt"
+            Write-Host "Connection info saved to rdp-connection-info.txt"
+          } catch {
+            Write-Host "Could not retrieve ngrok URL. Error: $_"
+          }
+        shell: powershell
+      
+      - name: Upload connection info
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdp-connection-info
+          path: rdp-connection-info.txt
+      
+      - name: Keep session alive
+        run: |
+          Write-Host "RDP session is ready. Keeping workflow alive for 6 hours..."
+          Write-Host "Download the artifact 'rdp-connection-info' for connection details"
+          Start-Sleep -Seconds 21600
+        shell: powershell
