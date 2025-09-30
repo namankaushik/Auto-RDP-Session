@@ -20,7 +20,7 @@ jobs:
       - name: Set RDP credentials with full rights
         run: |
           $username = "rdpuser"
-          $password = "RDPPass@123!" | ConvertTo-SecureString -AsPlainText -Force
+          $password = "Win@2025RDPEz!" | ConvertTo-SecureString -AsPlainText -Force
           New-LocalUser -Name $username -Password $password -FullName "RDP User" -Description "User for RDP access"
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
@@ -31,7 +31,7 @@ jobs:
           $acl.AddAccessRule($rule)
           
           Write-Host "RDP user created with full administrator rights: $username"
-          Write-Host "Password: RDPPass@123!"
+          Write-Host "Password: Win@2025RDPEz!"
         shell: powershell
       
       - name: Install ngrok
@@ -91,7 +91,7 @@ jobs:
             Write-Host "========================================"
             Write-Host "ngrok Public URL: $publicUrl"
             Write-Host "Username: rdpuser"
-            Write-Host "Password: RDPPass@123!"
+            Write-Host "Password: Win@2025RDPEz!"
             Write-Host "========================================"
             
             # Save connection info to file
@@ -99,7 +99,7 @@ jobs:
             $connectionInfo += "==========================`n"
             $connectionInfo += "ngrok URL: $publicUrl`n"
             $connectionInfo += "Username: rdpuser`n"
-            $connectionInfo += "Password: RDPPass@123!`n"
+            $connectionInfo += "Password: Win@2025RDPEz!`n"
             $connectionInfo += "`n"
             $connectionInfo += "Instructions:`n"
             $connectionInfo += "1. Use Remote Desktop Connection client`n"
