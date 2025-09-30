@@ -53,19 +53,18 @@ jobs:
             Write-Host "Username: rdpuser"
             Write-Host "Password: RDPPass@123!"
             
-            # Save connection info to file
-            $connectionInfo = @"
-RDP Connection Information
-==========================
-ngrok URL: $publicUrl
-Username: rdpuser
-Password: RDPPass@123!
-
-Instructions:
-1. Use Remote Desktop Connection client
-2. Connect to the ngrok URL (remove tcp:// prefix and use format: hostname:port)
-3. Enter the credentials above when prompted
-"@
+            # Save connection info to file using string concatenation
+            $connectionInfo = "RDP Connection Information`n"
+            $connectionInfo += "==========================`n"
+            $connectionInfo += "ngrok URL: $publicUrl`n"
+            $connectionInfo += "Username: rdpuser`n"
+            $connectionInfo += "Password: RDPPass@123!`n"
+            $connectionInfo += "`n"
+            $connectionInfo += "Instructions:`n"
+            $connectionInfo += "1. Use Remote Desktop Connection client`n"
+            $connectionInfo += "2. Connect to the ngrok URL (remove tcp:// prefix and use format: hostname:port)`n"
+            $connectionInfo += "3. Enter the credentials above when prompted`n"
+            
             $connectionInfo | Out-File -FilePath "rdp-connection-info.txt"
             Write-Host "Connection info saved to rdp-connection-info.txt"
           } catch {
